@@ -1,3 +1,6 @@
+/*
+main Yascal entry point
+ */
 var Yascal = (function(){
 	var me = {};
 

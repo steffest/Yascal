@@ -1,3 +1,6 @@
+/*
+ base Yascal element - all other component inherit from this
+ */
 Yascal.element = function(initialProperties){
     var me = {};
     initialProperties = initialProperties || {};
