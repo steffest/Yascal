@@ -16,6 +16,7 @@ Yascal.screen = (function(initialProperties){
 
 	var backGroundColor = "black";
 	var backGroundImage;
+	var lastUpdateTime = 0;
 
 	me.init = function(){
 		canvas = initialProperties.canvas || document.createElement("canvas");
@@ -92,19 +93,25 @@ Yascal.screen = (function(initialProperties){
 		needsRendering = true;
 	};
 
-	me.render = function(){
+	me.render = function(time){
 		var doRender = true;
 
 		if(doRender){
 
-			var now = performance.now();
+			var deltaTime = time - lastUpdateTime;
+			lastUpdateTime = time;
+			if (deltaTime<10) return;
+			if (deltaTime >1000) deltaTime=16;  // consider only 1 frame elapsed if unfocused.
+			if (!deltaTime) deltaTime=16;
+
+			EventBus.trigger(EVENT.screenUpdate,deltaTime);
 
 			activeElements.forEach(function(action,index){
 				if (action.canceled){
 					delete activeElementMap[action.id];
 					activeElements.splice(index,1);
 				}else{
-					var delta = now - action.start;
+					var delta = time - action.start;
 					var progress = Math.min(delta/action.duration,1);
 
 					var easing = action.easing ||Yascal.easing.easeOutQuad;

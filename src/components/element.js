@@ -9,6 +9,7 @@ Yascal.element = function(initialProperties){
     me.top = initialProperties.top || 0;
     me.width = initialProperties.width || 20;
     me.height = initialProperties.height || 20;
+    me.scale = 1;
 
     me.visible = true;
     me.needsRendering = true;
@@ -142,6 +143,10 @@ Yascal.element = function(initialProperties){
         me.top = y;
         me.refresh();
     };
+    me.setScale = function(scale){
+        me.scale = scale;
+        me.refresh();
+    };
 
     me.moveTo = function(x,y,duration,easing){
         if (currentMoveAction){
@@ -157,6 +162,21 @@ Yascal.element = function(initialProperties){
             },easing);
         }else{
             me.setPosition(x,y);
+        }
+    };
+
+    me.scaleTo = function(scale,duration,easing){
+        if (currentScaleAction){
+            Y.screen.cancelAnimation(currentScaleAction);
+            currentScaleAction = false;
+        }
+        if (duration){
+            currentScaleAction = Y.screen.registerAnimation({scale:me.scale},duration,function(initialState,progress){
+                var deltaScale = (scale - initialState.scale) * progress;
+                me.setScale(initialState.scale + deltaScale);
+            },easing);
+        }else{
+            me.setScale(scale);
         }
     };
 

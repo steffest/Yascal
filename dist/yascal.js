@@ -1,4 +1,73 @@
-/*
+var DIRECTION = {
+	left: 37,
+	up: 38,
+	right: 39,
+	down: 40,
+	leftup:3738,
+	rightup:3938,
+	leftdown: 3740,
+	rightdown: 3940,
+	none: 0,
+	horizontal: 1,
+	vertical: 2
+};
+
+var KEY={
+	left: 37,
+	up: 38,
+	right: 39,
+	down: 40,
+	space:32,
+	ctrl:17,
+	enter: 13,
+	action:1000
+};
+
+var EVENT={
+	keyDown : 1,
+	keyUp : 2,
+	select : 3,
+	screenUpdate:4,
+	tick:5,
+	step:6
+};
+
+;var EventBus = (function() {
+
+	var allEventHandlers = {};
+
+	var me = {};
+
+	me.onEvent = function (event,listener) {
+		var eventHandlers = allEventHandlers[event];
+		if (!eventHandlers) {
+			eventHandlers = [];
+			allEventHandlers[event] = eventHandlers;
+		}
+		eventHandlers.push(listener);
+	};
+
+	me.sendEvent = function(event,context) {
+		var eventHandlers = allEventHandlers[event];
+		if (eventHandlers) {
+			var i, len = eventHandlers.length;
+			for (i = 0; i < len; i++) {
+				eventHandlers[i](context,event);
+			}
+		}
+	};
+
+	// alias
+	me.trigger = function(event,context){
+		me.sendEvent(event,context)
+	};
+	me.on = function(event,listener){
+		me.onEvent(event,listener);
+	};
+
+	return me;
+}());
+;/*
 main Yascal entry point
  */
 var Yascal = (function(){
@@ -68,7 +137,46 @@ var Y = Yascal;;Yascal.properties = function(initialProperties){
 	};
 
 	return me;
-};;Yascal.screen = (function(initialProperties){
+};;Yascal.util = (function(i){
+	var me = {};
+
+
+
+	return me;
+})();
+
+
+function getUrlParameter(param){
+	if (window.location.getParameter){
+		return window.location.getParameter(param);
+	} else if (location.search) {
+		var parts = location.search.substring(1).split('&');
+		for (var i = 0; i < parts.length; i++) {
+			var nv = parts[i].split('=');
+			if (!nv[0]) continue;
+			if (nv[0] == param) {
+				return nv[1] || true;
+			}
+		}
+	}
+}
+
+function generateUUID(){
+	var d = new Date().getTime();
+	if(window.performance && typeof window.performance.now === "function"){
+		d += performance.now();
+	}
+	var uuid = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+		var r = (d + Math.random()*16)%16 | 0;
+		d = Math.floor(d/16);
+		return (c=='x' ? r : (r&0x3|0x8)).toString(16);
+	});
+	return uuid;
+}
+
+function clamp(num, min, max) {
+	return num <= min ? min : num >= max ? max : num;
+};Yascal.screen = (function(initialProperties){
 	var me = {};
 	initialProperties = Y.properties(initialProperties);
 	me.name = "mainScreen";
@@ -86,6 +194,7 @@ var Y = Yascal;;Yascal.properties = function(initialProperties){
 
 	var backGroundColor = "black";
 	var backGroundImage;
+	var lastUpdateTime = 0;
 
 	me.init = function(){
 		canvas = initialProperties.canvas || document.createElement("canvas");
@@ -162,19 +271,200 @@ var Y = Yascal;;Yascal.properties = function(initialProperties){
 		needsRendering = true;
 	};
 
-	me.render = function(){
+	me.render = function(time){
 		var doRender = true;
 
 		if(doRender){
 
-			var now = performance.now();
+			var deltaTime = time - lastUpdateTime;
+			lastUpdateTime = time;
+			if (deltaTime<10) return;
+			if (deltaTime >1000) deltaTime=16;  // consider only 1 frame elapsed if unfocused.
+			if (!deltaTime) deltaTime=16;
+
+			EventBus.trigger(EVENT.screenUpdate,deltaTime);
 
 			activeElements.forEach(function(action,index){
 				if (action.canceled){
 					delete activeElementMap[action.id];
 					activeElements.splice(index,1);
 				}else{
-					var delta = now - action.start;
+					var delta = time - action.start;
+					var progress = Math.min(delta/action.duration,1);
+
+					var easing = action.easing ||Yascal.easing.easeOutQuad;
+					var easedProgress = easing(progress);
+					action.updatefunction(action.initialState,easedProgress);
+					needsRendering = true;
+
+					if (progress == 1){
+						activeElements.splice(index,1);
+					}
+				}
+			});
+
+			if (needsRendering){
+				me.clear();
+
+				me.children.forEach(function(element){
+					//if (element.needsRendering) {
+						element.render();
+					//}
+				});
+
+
+				if (modalElement){
+					modalElement.render();
+					needsRendering = false;
+				}
+
+				needsRendering = false;
+			}
+
+		}
+		window.requestAnimationFrame(me.render);
+	};
+
+	me.registerAnimation = function(initialState,duration,updatefunction,easing){
+		if (duration){
+			var action = {
+				id: generateUUID(),
+				start: performance.now(),
+				duration: duration * 1000,
+				easing: easing,
+				initialState: initialState,
+				updatefunction: updatefunction
+			};
+			activeElements.push(action);
+			activeElementMap[action.id] = action;
+
+			return action.id;
+		}
+		return false;
+	};
+
+	me.cancelAnimation = function(id){
+		var action = activeElementMap[id];
+		if (action) action.canceled = true;
+	};
+
+
+
+	return me;
+})();;Yascal.screen = (function(initialProperties){
+	var me = {};
+	initialProperties = Y.properties(initialProperties);
+	me.name = "mainScreen";
+	me.visible = true;
+	me.children = [];
+
+	var activeElements = [];
+	var activeElementMap = {};
+
+	var canvas,ctx;
+	var needsRendering = true;
+	var modalElement;
+	var scaleFactorWidth = 1;
+	var scaleFactorHeight = 1;
+
+	var backGroundColor = "black";
+	var backGroundImage;
+	var lastUpdateTime = 0;
+
+	me.init = function(){
+		canvas = initialProperties.canvas || document.createElement("canvas");
+		ctx = canvas.getContext("2d");
+		Y.canvas = me.canvas = canvas;
+		Y.ctx = me.ctx = ctx;
+
+		me.render();
+	};
+
+	me.setSize = function(width,height){
+		canvas.width = me.width = width;
+		canvas.height = me.height = height;
+	};
+
+	me.setScaleFactor = function(refreshOnResize){
+		console.log("updating canvas scale factor");
+		scaleFactorWidth = canvas.offsetWidth/canvas.width;
+		scaleFactorHeight = canvas.offsetHeight/canvas.height;
+
+		if (refreshOnResize){
+			window.addEventListener('resize', function(){
+				me.setScaleFactor();
+			}, true);
+		}
+
+	};
+
+	me.getScaleFactor = function(){
+		return {width: scaleFactorWidth, height: scaleFactorHeight}
+	};
+
+	me.windowToCanvas = function(x,y){
+		return {x: x/scaleFactorWidth, y: y/scaleFactorHeight};
+	};
+	me.canvasToWindow = function(x,y){
+		return {x: x * scaleFactorWidth, y: y * scaleFactorHeight};
+	};
+	me.scaledX = function(x){
+		return Math.round(x/scaleFactorWidth);
+	};
+	me.scaledY = function(y){
+		return Math.round(y/scaleFactorHeight);
+	};
+
+	me.setProperties = function(p){
+		p = Y.properties(p);
+		backGroundColor = p.get("backGroundColor",backGroundColor);
+		backGroundImage = p.get("backGroundImage",backGroundImage);
+	};
+
+	me.clear = function(){
+		ctx.fillStyle = backGroundColor;
+		ctx.clearRect(0,0,me.width,me.height);
+		ctx.fillRect(0,0,me.width,me.height);
+
+		if (backGroundImage){
+			ctx.drawImage(backGroundImage,0,0,me.width,me.height);
+		}
+	};
+
+	me.clearBackGroundImage = function(){
+		backGroundImage = undefined;
+	};
+
+	me.refresh = function(){
+		needsRendering = true;
+	};
+
+	me.addChild = function(elm){
+		elm.setParent(me);
+		elm.zIndex = elm.zIndex || me.children.length;
+		me.children.push(elm);
+		needsRendering = true;
+	};
+
+	me.render = function(time){
+		var doRender = true;
+
+		if(doRender){
+
+			var deltaTime = time - lastUpdateTime;
+			lastUpdateTime = time;
+			if (deltaTime<10) return;
+			if (deltaTime >1000) deltaTime=16;  // consider only 1 frame elapsed if unfocused.
+			if (!deltaTime) deltaTime=16;
+
+			EventBus.trigger(EVENT.screenUpdate,deltaTime);
+
+			activeElements.forEach(function(action,index){
+				if (action.canceled){
+					delete activeElementMap[action.id];
+					activeElements.splice(index,1);
+				}else{
+					var delta = time - action.start;
 					var progress = Math.min(delta/action.duration,1);
 
 					var easing = action.easing ||Yascal.easing.easeOutQuad;
@@ -258,6 +548,52 @@ var Y = Yascal;;Yascal.properties = function(initialProperties){
 	}
 
 	return me;
+};;Y.spriteSheet = function(){
+    var me = {};
+    me.sprites = [];
+
+    me.loadFromImage = function(img,map,next){
+        var baseImg;
+
+        var done = function(){
+            if (next) next();
+        };
+
+        if (!map){done();return}
+
+        var generate = function(img){
+            if (map.tileWidth && map.tileHeight){
+                var w = map.tileWidth;
+                var h = map.tileHeight;
+                var colCount =  Math.floor(img.width/w);
+                var rowCount =  Math.floor(img.height/h);
+                var maxSprites = colCount * rowCount;
+                for (var i=0;i<maxSprites;i++){
+                    var properties = {
+                        width: w,
+                        height: h,
+                        img: img,
+                        x: (i % colCount)*w,
+                        y: Math.floor(i / colCount)*h
+                    };
+                    me.sprites.push(new Y.sprite(properties));
+                }
+                done();
+            }
+        };
+
+        if (typeof img == "string"){
+            console.log("loading spritesheet from " + img);
+            Y.loadImage(img,function(data){
+                baseImg = data;
+                generate(baseImg);
+            })
+        }else{
+            generate(img);
+        }
+    };
+
+    return me;
 };;// adapted from https://github.com/AndrewRayCode/easing-utils
 Yascal.easing = function() {
 	var me = {};
@@ -627,6 +963,7 @@ Yascal.easing = function() {
 			touchData.currentMouseY = _y;
 			touchData.mouseMoved = new Date().getTime();
 
+			/*
 			if (SETTINGS.useHover){
 				var hoverEventTarget = UI.getEventElement(_x,_y);
 				if (hoverEventTarget && hoverEventTarget.onHover) hoverEventTarget.onHover(touchData);
@@ -636,6 +973,7 @@ Yascal.easing = function() {
 				}
 				prevHoverTarget = hoverEventTarget;
 			}
+			*/
 		}
 
 		function updateTouch(touchIndex,x,y){
@@ -764,7 +1102,53 @@ Yascal.easing = function() {
 	return me;
 
 }());
-;/*
+;Yascal.ticker = function(){
+	var me = {};
+	var stepsPerSecond = 8;
+	var stats;
+	var fpsList = [];
+
+	var stepTime = 1000/stepsPerSecond;
+	var tickTime = 0;
+	var applicationTime = 0;
+	var steps = 0;
+
+	me.start = function(){
+		tickTime = 0;
+		EventBus.on(EVENT.screenUpdate,function(deltaTime){
+			if (stats){
+				var fps = 1000/deltaTime;
+				var len = fpsList.unshift(fps);
+				if (len>10){
+					fpsList.pop();
+				}
+			}
+			tickTime += deltaTime;
+			applicationTime += deltaTime;
+
+			EventBus.trigger(EVENT.tick,deltaTime);
+
+			if (tickTime>stepTime){
+				steps++;
+				tickTime = 0;
+				EventBus.trigger(EVENT.step);
+			}
+		})
+	};
+
+	me.stats = function(enable){
+		if (enable){
+			stats = true;
+		}
+		var average = 0;
+		var len = fpsList.length;
+		for (var i = 0; i<len; i++){average += fpsList[i]}
+		average = Math.round(average/len);
+		return average;
+	};
+
+	return me;
+};;/*
  base Yascal element - all other component inherit from this
  */
 Yascal.element = function(initialProperties){
@@ -775,6 +1159,7 @@ Yascal.element = function(initialProperties){
     me.top = initialProperties.top || 0;
     me.width = initialProperties.width || 20;
     me.height = initialProperties.height || 20;
+    me.scale = 1;
 
     me.visible = true;
     me.needsRendering = true;
@@ -908,6 +1293,10 @@ Yascal.element = function(initialProperties){
         me.top = y;
         me.refresh();
     };
+    me.setScale = function(scale){
+        me.scale = scale;
+        me.refresh();
+    };
 
     me.moveTo = function(x,y,duration,easing){
         if (currentMoveAction){
@@ -923,6 +1312,21 @@ Yascal.element = function(initialProperties){
             },easing);
         }else{
             me.setPosition(x,y);
+        }
+    };
+
+    me.scaleTo = function(scale,duration,easing){
+        if (currentScaleAction){
+            Y.screen.cancelAnimation(currentScaleAction);
+            currentScaleAction = false;
+        }
+        if (duration){
+            currentScaleAction = Y.screen.registerAnimation({scale:me.scale},duration,function(initialState,progress){
+                var deltaScale = (scale - initialState.scale) * progress;
+                me.setScale(initialState.scale + deltaScale);
+            },easing);
+        }else{
+            me.setScale(scale);
         }
     };
 
@@ -1538,6 +1942,59 @@ Yascal.element = function(initialProperties){
     me.setSelectionAlpha = function(alpha){
         selectionAlpha = alpha;
     };
+
+    return me;
+};;Yascal.stats = function(source){
+
+
+    var width = 100;
+    var height = 20;
+
+    var me = Yascal.element({width: width, height: height});
+    me.type = "stats";
+    me.backGroundColor = "blue";
+
+    me.render = function(internal){
+        if (!me.isVisible()) return;
+
+        internal = !!internal;
+
+        if (this.needsRendering){
+            me.clearCanvas();
+
+            if (me.backgroundColor){
+                me.ctx.fillStyle = me.backgroundColor;
+                me.ctx.fillRect(0,0,me.width,me.height);
+            }
+
+            if (source){
+                me.ctx.fillStyle = "white";
+                me.ctx.font = "16px Arial";
+                me.ctx.fillText(source.stats(),10,16);
+            }
+        }
+
+
+
+        //this.needsRendering = false;
+        if (internal){
+            return me.canvas;
+        }else{
+            me.parentCtx.drawImage(me.canvas,me.left,me.top,me.width,me.height);
+        }
+    };
+
+    me.onClick=function(){
+
+    };
+
+    me.sortZIndex = function(){
+        // sort reverse order as children are rendered bottom to top;
+        this.children.sort(function(a, b){
+            return a.zIndex == b.zIndex ? 0 : (a.zIndex > b.zIndex) || -1;
+        });
+    };
+
 
     return me;
 };;

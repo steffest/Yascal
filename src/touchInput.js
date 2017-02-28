@@ -109,6 +109,7 @@ Yascal.touchInput = (function() {
 			touchData.currentMouseY = _y;
 			touchData.mouseMoved = new Date().getTime();
 
+			/*
 			if (SETTINGS.useHover){
 				var hoverEventTarget = UI.getEventElement(_x,_y);
 				if (hoverEventTarget && hoverEventTarget.onHover) hoverEventTarget.onHover(touchData);
@@ -118,6 +119,7 @@ Yascal.touchInput = (function() {
 				}
 				prevHoverTarget = hoverEventTarget;
 			}
+			*/
 		}
 
 		function updateTouch(touchIndex,x,y){

@@ -6,7 +6,7 @@ var files = require("./files.js");
 var dist = "./dist/yascal.js";
 var distMin = "./dist/yascal-min.js";
 
-files.src.forEach(function(file){
+files.forEach(function(file){
 	typeof file == "string" ? append(file) : file.forEach(function(arrayFile){append(arrayFile);})
 });
 
