@@ -19,6 +19,7 @@ Yascal.element = function(initialProperties){
     me.canvas.width = me.width;
     me.canvas.height = me.height;
     me.ctx = me.canvas.getContext("2d");
+
     me.children = [];
 
     me.id = generateUUID();

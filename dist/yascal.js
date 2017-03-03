@@ -176,9 +176,8 @@ function generateUUID(){
 
 function clamp(num, min, max) {
 	return num <= min ? min : num >= max ? max : num;
-};Yascal.screen = (function(initialProperties){
+};Yascal.screen = (function(){
 	var me = {};
-	initialProperties = Y.properties(initialProperties);
 	me.name = "mainScreen";
 	me.visible = true;
 	me.children = [];
@@ -192,22 +191,52 @@ function clamp(num, min, max) {
 	var scaleFactorWidth = 1;
 	var scaleFactorHeight = 1;
 
-	var backGroundColor = "black";
-	var backGroundImage;
+	me.backGroundColor = "black";
+	me.backGroundImage;
 	var lastUpdateTime = 0;
 
-	me.init = function(){
+	var renderer;
+
+	me.init = function(initialProperties){
+		initialProperties = Y.properties(initialProperties);
 		canvas = initialProperties.canvas || document.createElement("canvas");
-		ctx = canvas.getContext("2d");
 		Y.canvas = me.canvas = canvas;
+
+		console.error(initialProperties);
+		if (initialProperties.useWebGL){
+			if (typeof YascalGl == "object"){
+				Y.useWebGL = true;
+			}else{
+				console.error("can't use WebGL, the Yascal GL library is not loaded");
+			}
+		}
+
+		if (Y.useWebGL){
+			console.log("switching to Web GL");
+			ctx = YGL.context(20,20,canvas);
+			renderer = Yascal.renderer.webgl(ctx,me);
+		}else{
+			ctx = canvas.getContext("2d");
+			renderer = Yascal.renderer.canvas2d(canvas,me);
+		}
 		Y.ctx = me.ctx = ctx;
 
 		me.render();
 	};
 
 	me.setSize = function(width,height){
-		canvas.width = me.width = width;
-		canvas.height = me.height = height;
+		renderer.setSize(width,height);
+
+		// update canvas style width
+
+		var scale = Math.min(window.innerHeight/height, window.innerWidth/width);
+
+
+		canvas.style.position = "absolute";
+		canvas.style.width = (width * scale) + "px";
+		canvas.style.height = (height * scale) + "px";
+
+
 	};
 
 	me.setScaleFactor = function(refreshOnResize){
@@ -242,22 +271,16 @@ function clamp(num, min, max) {
 
 	me.setProperties = function(p){
 		p = Y.properties(p);
-		backGroundColor = p.get("backGroundColor",backGroundColor);
-		backGroundImage = p.get("backGroundImage",backGroundImage);
+		me.backGroundColor = p.get("backGroundColor",me.backGroundColor);
+		me.backGroundImage = p.get("backGroundImage",me.backGroundImage);
 	};
 
 	me.clear = function(){
-		ctx.fillStyle = backGroundColor;
-		ctx.clearRect(0,0,me.width,me.height);
-		ctx.fillRect(0,0,me.width,me.height);
-
-		if (backGroundImage){
-			ctx.drawImage(backGroundImage,0,0,me.width,me.height);
-		}
+		renderer.clear();
 	};
 
 	me.clearBackGroundImage = function(){
-		backGroundImage = undefined;
+		me.backGroundImage = undefined;
 	};
 
 	me.refresh = function(){
@@ -272,57 +295,58 @@ function clamp(num, min, max) {
 	};
 
 	me.render = function(time){
-		var doRender = true;
 
-		if(doRender){
+		window.requestAnimationFrame(me.render);
 
-			var deltaTime = time - lastUpdateTime;
-			lastUpdateTime = time;
-			if (deltaTime<10) return;
-			if (deltaTime >1000) deltaTime=16;  // consider only 1 frame elapsed if unfocused.
-			if (!deltaTime) deltaTime=16;
+		if (Main.stats) Main.stats.begin();
 
-			EventBus.trigger(EVENT.screenUpdate,deltaTime);
+		var deltaTime = time - lastUpdateTime;
+		lastUpdateTime = time;
+		if (deltaTime<10) return;
+		if (deltaTime >1000) deltaTime=16;  // consider only 1 frame elapsed if unfocused.
+		if (!deltaTime) deltaTime=16;
 
-			activeElements.forEach(function(action,index){
-				if (action.canceled){
-					delete activeElementMap[action.id];
+		EventBus.trigger(EVENT.screenUpdate,deltaTime);
+
+		activeElements.forEach(function(action,index){
+			if (action.canceled){
+				delete activeElementMap[action.id];
+				activeElements.splice(index,1);
+			}else{
+				var delta = time - action.start;
+				var progress = Math.min(delta/action.duration,1);
+
+				var easing = action.easing ||Yascal.easing.easeOutQuad;
+				var easedProgress = easing(progress);
+				action.updatefunction(action.initialState,easedProgress);
+				needsRendering = true;
+
+				if (progress == 1){
 					activeElements.splice(index,1);
-				}else{
-					var delta = time - action.start;
-					var progress = Math.min(delta/action.duration,1);
-
-					var easing = action.easing ||Yascal.easing.easeOutQuad;
-					var easedProgress = easing(progress);
-					action.updatefunction(action.initialState,easedProgress);
-					needsRendering = true;
-
-					if (progress == 1){
-						activeElements.splice(index,1);
-					}
 				}
+			}
+		});
+
+		if (needsRendering){
+			me.clear();
+
+			me.children.forEach(function(element){
+				//if (element.needsRendering) {
+					element.render();
+				//}
 			});
 
-			if (needsRendering){
-				me.clear();
 
-				me.children.forEach(function(element){
-					//if (element.needsRendering) {
-						element.render();
-					//}
-				});
-
-
-				if (modalElement){
-					modalElement.render();
-					needsRendering = false;
-				}
-
+			if (modalElement){
+				modalElement.render();
 				needsRendering = false;
 			}
 
+			needsRendering = false;
 		}
-		window.requestAnimationFrame(me.render);
+
+		if (Main.stats) Main.stats.end();
+
 	};
 
 	me.registerAnimation = function(initialState,duration,updatefunction,easing){
@@ -351,9 +375,8 @@ function clamp(num, min, max) {
 
 
 	return me;
-})();;Yascal.screen = (function(initialProperties){
+})();;Yascal.screen = (function(){
 	var me = {};
-	initialProperties = Y.properties(initialProperties);
 	me.name = "mainScreen";
 	me.visible = true;
 	me.children = [];
@@ -367,22 +390,52 @@ function clamp(num, min, max) {
 	var scaleFactorWidth = 1;
 	var scaleFactorHeight = 1;
 
-	var backGroundColor = "black";
-	var backGroundImage;
+	me.backGroundColor = "black";
+	me.backGroundImage;
 	var lastUpdateTime = 0;
 
-	me.init = function(){
+	var renderer;
+
+	me.init = function(initialProperties){
+		initialProperties = Y.properties(initialProperties);
 		canvas = initialProperties.canvas || document.createElement("canvas");
-		ctx = canvas.getContext("2d");
 		Y.canvas = me.canvas = canvas;
+
+		console.error(initialProperties);
+		if (initialProperties.useWebGL){
+			if (typeof YascalGl == "object"){
+				Y.useWebGL = true;
+			}else{
+				console.error("can't use WebGL, the Yascal GL library is not loaded");
+			}
+		}
+
+		if (Y.useWebGL){
+			console.log("switching to Web GL");
+			ctx = YGL.context(20,20,canvas);
+			renderer = Yascal.renderer.webgl(ctx,me);
+		}else{
+			ctx = canvas.getContext("2d");
+			renderer = Yascal.renderer.canvas2d(canvas,me);
+		}
 		Y.ctx = me.ctx = ctx;
 
 		me.render();
 	};
 
 	me.setSize = function(width,height){
-		canvas.width = me.width = width;
-		canvas.height = me.height = height;
+		renderer.setSize(width,height);
+
+		// update canvas style width
+
+		var scale = Math.min(window.innerHeight/height, window.innerWidth/width);
+
+
+		canvas.style.position = "absolute";
+		canvas.style.width = (width * scale) + "px";
+		canvas.style.height = (height * scale) + "px";
+
+
 	};
 
 	me.setScaleFactor = function(refreshOnResize){
@@ -417,22 +470,16 @@ function clamp(num, min, max) {
 
 	me.setProperties = function(p){
 		p = Y.properties(p);
-		backGroundColor = p.get("backGroundColor",backGroundColor);
-		backGroundImage = p.get("backGroundImage",backGroundImage);
+		me.backGroundColor = p.get("backGroundColor",me.backGroundColor);
+		me.backGroundImage = p.get("backGroundImage",me.backGroundImage);
 	};
 
 	me.clear = function(){
-		ctx.fillStyle = backGroundColor;
-		ctx.clearRect(0,0,me.width,me.height);
-		ctx.fillRect(0,0,me.width,me.height);
-
-		if (backGroundImage){
-			ctx.drawImage(backGroundImage,0,0,me.width,me.height);
-		}
+		renderer.clear();
 	};
 
 	me.clearBackGroundImage = function(){
-		backGroundImage = undefined;
+		me.backGroundImage = undefined;
 	};
 
 	me.refresh = function(){
@@ -447,57 +494,58 @@ function clamp(num, min, max) {
 	};
 
 	me.render = function(time){
-		var doRender = true;
 
-		if(doRender){
+		window.requestAnimationFrame(me.render);
 
-			var deltaTime = time - lastUpdateTime;
-			lastUpdateTime = time;
-			if (deltaTime<10) return;
-			if (deltaTime >1000) deltaTime=16;  // consider only 1 frame elapsed if unfocused.
-			if (!deltaTime) deltaTime=16;
+		if (Main.stats) Main.stats.begin();
 
-			EventBus.trigger(EVENT.screenUpdate,deltaTime);
+		var deltaTime = time - lastUpdateTime;
+		lastUpdateTime = time;
+		if (deltaTime<10) return;
+		if (deltaTime >1000) deltaTime=16;  // consider only 1 frame elapsed if unfocused.
+		if (!deltaTime) deltaTime=16;
 
-			activeElements.forEach(function(action,index){
-				if (action.canceled){
-					delete activeElementMap[action.id];
+		EventBus.trigger(EVENT.screenUpdate,deltaTime);
+
+		activeElements.forEach(function(action,index){
+			if (action.canceled){
+				delete activeElementMap[action.id];
+				activeElements.splice(index,1);
+			}else{
+				var delta = time - action.start;
+				var progress = Math.min(delta/action.duration,1);
+
+				var easing = action.easing ||Yascal.easing.easeOutQuad;
+				var easedProgress = easing(progress);
+				action.updatefunction(action.initialState,easedProgress);
+				needsRendering = true;
+
+				if (progress == 1){
 					activeElements.splice(index,1);
-				}else{
-					var delta = time - action.start;
-					var progress = Math.min(delta/action.duration,1);
-
-					var easing = action.easing ||Yascal.easing.easeOutQuad;
-					var easedProgress = easing(progress);
-					action.updatefunction(action.initialState,easedProgress);
-					needsRendering = true;
-
-					if (progress == 1){
-						activeElements.splice(index,1);
-					}
 				}
+			}
+		});
+
+		if (needsRendering){
+			me.clear();
+
+			me.children.forEach(function(element){
+				//if (element.needsRendering) {
+					element.render();
+				//}
 			});
 
-			if (needsRendering){
-				me.clear();
 
-				me.children.forEach(function(element){
-					//if (element.needsRendering) {
-						element.render();
-					//}
-				});
-
-
-				if (modalElement){
-					modalElement.render();
-					needsRendering = false;
-				}
-
+			if (modalElement){
+				modalElement.render();
 				needsRendering = false;
 			}
 
+			needsRendering = false;
 		}
-		window.requestAnimationFrame(me.render);
+
+		if (Main.stats) Main.stats.end();
+
 	};
 
 	me.registerAnimation = function(initialState,duration,updatefunction,easing){
@@ -529,23 +577,39 @@ function clamp(num, min, max) {
 })();;Yascal.sprite = function(initialProperties){
 	var me = {};
 
-	me.canvas = document.createElement("canvas");
-	me.ctx = me.canvas.getContext("2d");
+	if (Y.useWebGL){
+		// webgl texture region
 
-	if (initialProperties){
-		if (initialProperties.width){
-			me.canvas.width = initialProperties.width;
-			me.canvas.height = initialProperties.height || initialProperties.width;
-		}
+		me.width = initialProperties.width;
+		me.height = initialProperties.height;
+		me.texture = initialProperties.img;
 
-		if (initialProperties.img){
-			var x=initialProperties.x||0;
-			var y=initialProperties.y||0;
-			var w=me.canvas.width;
-			var h=me.canvas.height;
-			me.ctx.drawImage(initialProperties.img,x,y,w,h,0,0,w,h);
+		me.x = initialProperties.x;
+		me.y = initialProperties.y;
+
+		me.region = YGL.textureRegion(initialProperties.img,me.x,me.y,me.width,me.height);
+
+	}else{
+		// canvas Sprite
+		me.canvas = document.createElement("canvas");
+		me.ctx = me.canvas.getContext("2d");
+
+		if (initialProperties){
+			if (initialProperties.width){
+				me.canvas.width = initialProperties.width;
+				me.canvas.height = initialProperties.height || initialProperties.width;
+			}
+
+			if (initialProperties.img){
+				var x=initialProperties.x||0;
+				var y=initialProperties.y||0;
+				var w=me.canvas.width;
+				var h=me.canvas.height;
+				me.ctx.drawImage(initialProperties.img,x,y,w,h,0,0,w,h);
+			}
 		}
 	}
+
 
 	return me;
 };;Y.spriteSheet = function(){
@@ -553,6 +617,7 @@ function clamp(num, min, max) {
     me.sprites = [];
 
     me.loadFromImage = function(img,map,next){
+
         var baseImg;
 
         var done = function(){
@@ -576,20 +641,28 @@ function clamp(num, min, max) {
                         x: (i % colCount)*w,
                         y: Math.floor(i / colCount)*h
                     };
-                    me.sprites.push(new Y.sprite(properties));
+                    me.sprites.push(Y.sprite(properties));
                 }
                 done();
             }
         };
 
-        if (typeof img == "string"){
-            console.log("loading spritesheet from " + img);
-            Y.loadImage(img,function(data){
-                baseImg = data;
-                generate(baseImg);
-            })
+        if (Y.useWebGL){
+            var texture = YGL.texture(Y.ctx, img, function(){
+                console.log("texture loaded");
+                generate(texture);
+            });
+            window.texture = texture;
         }else{
-            generate(img);
+            if (typeof img == "string"){
+                console.log("loading spritesheet from " + img);
+                Y.loadImage(img,function(data){
+                    baseImg = data;
+                    generate(baseImg);
+                })
+            }else{
+                generate(img);
+            }
         }
     };
 
@@ -1169,6 +1242,7 @@ Yascal.element = function(initialProperties){
     me.canvas.width = me.width;
     me.canvas.height = me.height;
     me.ctx = me.canvas.getContext("2d");
+
     me.children = [];
 
     me.id = generateUUID();
@@ -1955,9 +2029,11 @@ Yascal.element = function(initialProperties){
     me.backGroundColor = "blue";
 
     me.render = function(internal){
-        if (!me.isVisible()) return;
 
-        internal = !!internal;
+        if (!me.isVisible()) return;
+        if (Y.useWebGL) return;
+
+            internal = !!internal;
 
         if (this.needsRendering){
             me.clearCanvas();
@@ -1984,17 +2060,52 @@ Yascal.element = function(initialProperties){
         }
     };
 
-    me.onClick=function(){
-
-    };
-
-    me.sortZIndex = function(){
-        // sort reverse order as children are rendered bottom to top;
-        this.children.sort(function(a, b){
-            return a.zIndex == b.zIndex ? 0 : (a.zIndex > b.zIndex) || -1;
-        });
-    };
-
 
     return me;
+};;Yascal.renderer = Yascal.renderer || {};
+Yascal.renderer.canvas2d = function(canvas,screen){
+        var me = {};
+        var ctx = canvas.getContext("2d");
+
+        me.setSize = function(width,height){
+            console.log("canvas2d setSize");
+            canvas.width = screen.width = width;
+            canvas.height = screen.height = height;
+        };
+
+        me.clear = function(){
+            ctx.fillStyle = screen.backGroundColor;
+            ctx.clearRect(0,0,screen.width,screen.height);
+            ctx.fillRect(0,0,screen.width,screen.height);
+
+            if (screen.backGroundImage){
+                ctx.drawImage(screen.backGroundImage,0,0,screen.width,screen.height);
+            }
+        };
+
+
+        return me;
+};;Yascal.renderer = Yascal.renderer || {};
+Yascal.renderer.webgl = function(context,screen){
+	var me = {};
+
+
+	me.setSize = function(width,height){
+		console.log("webgl setSize");
+		context.resize(width,height);
+	};
+
+	me.clear = function(){
+		var gl = context.gl;
+		// TODO: set to background color
+		//gl.clearColor(0, 0.5, 0, 1);
+		gl.clear(gl.COLOR_BUFFER_BIT);
+
+		if (screen.backGroundImage){
+			//ctx.drawImage(screen.backGroundImage,0,0,screen.width,screen.height);
+		}
+	};
+
+
+	return me;
 };;

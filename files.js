@@ -27,7 +27,10 @@ var yascalSourceFiles = [
 		"src/components/element.js",
 		"src/components/panel.js",
 		"src/components/listbox.js",
-		"src/components/stats.js"
+		"src/components/stats.js",
+
+		"src/renderer/canvas2d.js",
+		"src/renderer/webgl.js"
 	]
 ];
 

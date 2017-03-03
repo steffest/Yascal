@@ -3,6 +3,7 @@ Y.spriteSheet = function(){
     me.sprites = [];
 
     me.loadFromImage = function(img,map,next){
+
         var baseImg;
 
         var done = function(){
@@ -26,20 +27,28 @@ Y.spriteSheet = function(){
                         x: (i % colCount)*w,
                         y: Math.floor(i / colCount)*h
                     };
-                    me.sprites.push(new Y.sprite(properties));
+                    me.sprites.push(Y.sprite(properties));
                 }
                 done();
             }
         };
 
-        if (typeof img == "string"){
-            console.log("loading spritesheet from " + img);
-            Y.loadImage(img,function(data){
-                baseImg = data;
-                generate(baseImg);
-            })
+        if (Y.useWebGL){
+            var texture = YGL.texture(Y.ctx, img, function(){
+                console.log("texture loaded");
+                generate(texture);
+            });
+            window.texture = texture;
         }else{
-            generate(img);
+            if (typeof img == "string"){
+                console.log("loading spritesheet from " + img);
+                Y.loadImage(img,function(data){
+                    baseImg = data;
+                    generate(baseImg);
+                })
+            }else{
+                generate(img);
+            }
         }
     };
 

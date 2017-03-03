@@ -9,9 +9,11 @@ Yascal.stats = function(source){
     me.backGroundColor = "blue";
 
     me.render = function(internal){
-        if (!me.isVisible()) return;
 
-        internal = !!internal;
+        if (!me.isVisible()) return;
+        if (Y.useWebGL) return;
+
+            internal = !!internal;
 
         if (this.needsRendering){
             me.clearCanvas();

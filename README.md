@@ -2,4 +2,4 @@
 
 Yet Another Simple CAnvas Library
 
-High performance user-interface library for canvas
+High performance 2D user-interface library for Canvas and webGL

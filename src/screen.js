@@ -1,6 +1,5 @@
-Yascal.screen = (function(initialProperties){
+Yascal.screen = (function(){
 	var me = {};
-	initialProperties = Y.properties(initialProperties);
 	me.name = "mainScreen";
 	me.visible = true;
 	me.children = [];
@@ -14,22 +13,52 @@ Yascal.screen = (function(initialProperties){
 	var scaleFactorWidth = 1;
 	var scaleFactorHeight = 1;
 
-	var backGroundColor = "black";
-	var backGroundImage;
+	me.backGroundColor = "black";
+	me.backGroundImage;
 	var lastUpdateTime = 0;
 
-	me.init = function(){
+	var renderer;
+
+	me.init = function(initialProperties){
+		initialProperties = Y.properties(initialProperties);
 		canvas = initialProperties.canvas || document.createElement("canvas");
-		ctx = canvas.getContext("2d");
 		Y.canvas = me.canvas = canvas;
+
+		console.error(initialProperties);
+		if (initialProperties.useWebGL){
+			if (typeof YascalGl == "object"){
+				Y.useWebGL = true;
+			}else{
+				console.error("can't use WebGL, the Yascal GL library is not loaded");
+			}
+		}
+
+		if (Y.useWebGL){
+			console.log("switching to Web GL");
+			ctx = YGL.context(20,20,canvas);
+			renderer = Yascal.renderer.webgl(ctx,me);
+		}else{
+			ctx = canvas.getContext("2d");
+			renderer = Yascal.renderer.canvas2d(canvas,me);
+		}
 		Y.ctx = me.ctx = ctx;
 
 		me.render();
 	};
 
 	me.setSize = function(width,height){
-		canvas.width = me.width = width;
-		canvas.height = me.height = height;
+		renderer.setSize(width,height);
+
+		// update canvas style width
+
+		var scale = Math.min(window.innerHeight/height, window.innerWidth/width);
+
+
+		canvas.style.position = "absolute";
+		canvas.style.width = (width * scale) + "px";
+		canvas.style.height = (height * scale) + "px";
+
+
 	};
 
 	me.setScaleFactor = function(refreshOnResize){
@@ -64,22 +93,16 @@ Yascal.screen = (function(initialProperties){
 
 	me.setProperties = function(p){
 		p = Y.properties(p);
-		backGroundColor = p.get("backGroundColor",backGroundColor);
-		backGroundImage = p.get("backGroundImage",backGroundImage);
+		me.backGroundColor = p.get("backGroundColor",me.backGroundColor);
+		me.backGroundImage = p.get("backGroundImage",me.backGroundImage);
 	};
 
 	me.clear = function(){
-		ctx.fillStyle = backGroundColor;
-		ctx.clearRect(0,0,me.width,me.height);
-		ctx.fillRect(0,0,me.width,me.height);
-
-		if (backGroundImage){
-			ctx.drawImage(backGroundImage,0,0,me.width,me.height);
-		}
+		renderer.clear();
 	};
 
 	me.clearBackGroundImage = function(){
-		backGroundImage = undefined;
+		me.backGroundImage = undefined;
 	};
 
 	me.refresh = function(){
@@ -94,57 +117,58 @@ Yascal.screen = (function(initialProperties){
 	};
 
 	me.render = function(time){
-		var doRender = true;
 
-		if(doRender){
+		window.requestAnimationFrame(me.render);
 
-			var deltaTime = time - lastUpdateTime;
-			lastUpdateTime = time;
-			if (deltaTime<10) return;
-			if (deltaTime >1000) deltaTime=16;  // consider only 1 frame elapsed if unfocused.
-			if (!deltaTime) deltaTime=16;
+		if (Main.stats) Main.stats.begin();
 
-			EventBus.trigger(EVENT.screenUpdate,deltaTime);
+		var deltaTime = time - lastUpdateTime;
+		lastUpdateTime = time;
+		if (deltaTime<10) return;
+		if (deltaTime >1000) deltaTime=16;  // consider only 1 frame elapsed if unfocused.
+		if (!deltaTime) deltaTime=16;
 
-			activeElements.forEach(function(action,index){
-				if (action.canceled){
-					delete activeElementMap[action.id];
+		EventBus.trigger(EVENT.screenUpdate,deltaTime);
+
+		activeElements.forEach(function(action,index){
+			if (action.canceled){
+				delete activeElementMap[action.id];
+				activeElements.splice(index,1);
+			}else{
+				var delta = time - action.start;
+				var progress = Math.min(delta/action.duration,1);
+
+				var easing = action.easing ||Yascal.easing.easeOutQuad;
+				var easedProgress = easing(progress);
+				action.updatefunction(action.initialState,easedProgress);
+				needsRendering = true;
+
+				if (progress == 1){
 					activeElements.splice(index,1);
-				}else{
-					var delta = time - action.start;
-					var progress = Math.min(delta/action.duration,1);
-
-					var easing = action.easing ||Yascal.easing.easeOutQuad;
-					var easedProgress = easing(progress);
-					action.updatefunction(action.initialState,easedProgress);
-					needsRendering = true;
-
-					if (progress == 1){
-						activeElements.splice(index,1);
-					}
 				}
+			}
+		});
+
+		if (needsRendering){
+			me.clear();
+
+			me.children.forEach(function(element){
+				//if (element.needsRendering) {
+					element.render();
+				//}
 			});
 
-			if (needsRendering){
-				me.clear();
 
-				me.children.forEach(function(element){
-					//if (element.needsRendering) {
-						element.render();
-					//}
-				});
-
-
-				if (modalElement){
-					modalElement.render();
-					needsRendering = false;
-				}
-
+			if (modalElement){
+				modalElement.render();
 				needsRendering = false;
 			}
 
+			needsRendering = false;
 		}
-		window.requestAnimationFrame(me.render);
+
+		if (Main.stats) Main.stats.end();
+
 	};
 
 	me.registerAnimation = function(initialState,duration,updatefunction,easing){
